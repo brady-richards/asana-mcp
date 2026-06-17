@@ -322,4 +322,36 @@ export function registerTasksTools(
       return textResult(res.data);
     }
   );
+
+  server.tool(
+    "asana_add_followers",
+    "Add followers (collaborators/watchers) to a task. Followers receive notifications about the task without being the assignee. Accepts user GIDs — resolve names or emails to GIDs with asana_typeahead.",
+    {
+      task_id: z.string().describe("Task GID"),
+      followers: z.array(z.string()).min(1).describe("User GIDs (or 'me') to add as followers"),
+      opt_fields: z.string().optional().describe("Comma-separated fields to include"),
+    },
+    async ({ task_id, followers, opt_fields }) => {
+      const res = await tasks().addFollowersForTask({ data: { followers } }, task_id, {
+        opt_fields: (opt_fields || "name,followers.name").split(","),
+      });
+      return textResult(res.data);
+    }
+  );
+
+  server.tool(
+    "asana_remove_followers",
+    "Remove followers (collaborators/watchers) from a task. Accepts user GIDs — resolve names or emails to GIDs with asana_typeahead.",
+    {
+      task_id: z.string().describe("Task GID"),
+      followers: z.array(z.string()).min(1).describe("User GIDs (or 'me') to remove as followers"),
+      opt_fields: z.string().optional().describe("Comma-separated fields to include"),
+    },
+    async ({ task_id, followers, opt_fields }) => {
+      const res = await tasks().removeFollowerForTask({ data: { followers } }, task_id, {
+        opt_fields: (opt_fields || "name,followers.name").split(","),
+      });
+      return textResult(res.data);
+    }
+  );
 }
