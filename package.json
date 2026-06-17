@@ -1,7 +1,7 @@
 {
   "name": "asana-mcp",
   "version": "0.1.0",
-  "description": "Asana MCP server for Claude Code — tasks, projects, sections, tags, and stories via PAT tokens.",
+  "description": "Asana MCP server for Claude Code — tasks, projects, sections, tags, stories, and typeahead via PAT tokens.",
   "type": "module",
   "bin": {
     "asana-mcp": "./dist/index.js"
