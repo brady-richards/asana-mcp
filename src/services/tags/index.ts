@@ -3,6 +3,8 @@ import Asana from "asana";
 import { z } from "zod";
 import { ServiceContext } from "../../types.js";
 import { textResult } from "../../utils/formatting.js";
+import { withErrorHandling } from "../../utils/errors.js";
+import { limitParam, offsetParam, paginationOpts, pagedResult } from "../../utils/pagination.js";
 
 export function registerTagsTools(
   server: McpServer,
@@ -15,11 +17,13 @@ export function registerTagsTools(
     "List tags in a workspace",
     {
       workspace: z.string().describe("Workspace GID"),
+      limit: limitParam,
+      offset: offsetParam,
     },
-    async ({ workspace }) => {
-      const res = await tags().getTagsForWorkspace(workspace, {});
-      return textResult(res.data);
-    }
+    withErrorHandling(async ({ workspace, limit, offset }) => {
+      const res = await tags().getTagsForWorkspace(workspace, paginationOpts(limit, offset));
+      return textResult(pagedResult(res));
+    })
   );
 
   server.tool(
@@ -28,10 +32,10 @@ export function registerTagsTools(
     {
       task_id: z.string().describe("Task GID"),
     },
-    async ({ task_id }) => {
+    withErrorHandling(async ({ task_id }) => {
       const res = await tags().getTagsForTask(task_id, {});
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -40,10 +44,10 @@ export function registerTagsTools(
     {
       tag_id: z.string().describe("Tag GID"),
     },
-    async ({ tag_id }) => {
+    withErrorHandling(async ({ tag_id }) => {
       const res = await tags().getTag(tag_id, {});
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -54,10 +58,10 @@ export function registerTagsTools(
       name: z.string().describe("Tag name"),
       color: z.string().optional().describe("Tag color"),
     },
-    async ({ workspace, name, color }) => {
+    withErrorHandling(async ({ workspace, name, color }) => {
       const res = await tags().createTagForWorkspace({ data: { name, color } }, workspace);
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -68,10 +72,10 @@ export function registerTagsTools(
       name: z.string().optional().describe("New tag name"),
       color: z.string().optional().describe("New tag color"),
     },
-    async ({ tag_id, ...updates }) => {
+    withErrorHandling(async ({ tag_id, ...updates }) => {
       const res = await tags().updateTag({ data: updates }, tag_id);
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -80,9 +84,9 @@ export function registerTagsTools(
     {
       tag_id: z.string().describe("Tag GID to delete"),
     },
-    async ({ tag_id }) => {
+    withErrorHandling(async ({ tag_id }) => {
       await tags().deleteTag(tag_id);
       return textResult({ ok: true, deleted: tag_id });
-    }
+    })
   );
 }

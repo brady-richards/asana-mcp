@@ -3,6 +3,9 @@ import Asana from "asana";
 import { z } from "zod";
 import { ServiceContext } from "../../types.js";
 import { textResult } from "../../utils/formatting.js";
+import { withErrorHandling } from "../../utils/errors.js";
+import { parseOptFields } from "../../utils/optFields.js";
+import { limitParam, offsetParam, paginationOpts, pagedResult } from "../../utils/pagination.js";
 
 export function registerStoriesTools(
   server: McpServer,
@@ -15,14 +18,17 @@ export function registerStoriesTools(
     "Get comments and activity on a task",
     {
       task_id: z.string().describe("Task GID"),
+      limit: limitParam,
+      offset: offsetParam,
       opt_fields: z.string().optional().describe("Comma-separated fields to include"),
     },
-    async ({ task_id, opt_fields }) => {
+    withErrorHandling(async ({ task_id, limit, offset, opt_fields }) => {
       const res = await stories().getStoriesForTask(task_id, {
-        opt_fields: (opt_fields || "text,created_by.name,created_at,type,resource_subtype").split(","),
+        ...paginationOpts(limit, offset),
+        opt_fields: parseOptFields(opt_fields, "text,created_by.name,created_at,type,resource_subtype"),
       });
-      return textResult(res.data);
-    }
+      return textResult(pagedResult(res));
+    })
   );
 
   server.tool(
@@ -38,7 +44,7 @@ export function registerStoriesTools(
           'HTML-formatted comment body (Asana rich-text subset, wrapped in <body>...</body>). @mention with <a data-asana-gid="GID"/>.'
         ),
     },
-    async ({ task_id, text, html_text }) => {
+    withErrorHandling(async ({ task_id, text, html_text }) => {
       if (!text && !html_text) {
         throw new Error("asana_create_task_story requires either `text` or `html_text`.");
       }
@@ -48,6 +54,6 @@ export function registerStoriesTools(
       const data = html_text ? { html_text } : { text };
       const res = await stories().createStoryForTask({ data }, task_id);
       return textResult(res.data);
-    }
+    })
   );
 }

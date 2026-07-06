@@ -3,6 +3,8 @@ import Asana from "asana";
 import { z } from "zod";
 import { ServiceContext } from "../../types.js";
 import { textResult } from "../../utils/formatting.js";
+import { withErrorHandling } from "../../utils/errors.js";
+import { parseOptFields } from "../../utils/optFields.js";
 
 export function registerTypeaheadTools(
   server: McpServer,
@@ -32,15 +34,15 @@ export function registerTypeaheadTools(
       count: z.number().int().min(1).max(100).optional().describe("Max results (1-100; server default 20 when omitted)"),
       opt_fields: z.string().optional().describe("Comma-separated fields to include"),
     },
-    async ({ workspace, resource_type, query, count, opt_fields }) => {
+    withErrorHandling(async ({ workspace, resource_type, query, count, opt_fields }) => {
       const defaultFields = resource_type === "user" ? "name,email" : "name";
       const opts: { query?: string; count?: number; opt_fields: string[] } = {
-        opt_fields: (opt_fields || defaultFields).split(","),
+        opt_fields: parseOptFields(opt_fields, defaultFields),
       };
       if (query) opts.query = query;
       if (count) opts.count = count;
       const res = await typeahead().typeaheadForWorkspace(workspace, resource_type, opts);
       return textResult(res.data);
-    }
+    })
   );
 }

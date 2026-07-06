@@ -7,6 +7,9 @@ import { registerTagsTools } from "./services/tags/index.js";
 import { registerStoriesTools } from "./services/stories/index.js";
 import { registerCustomFieldsTools } from "./services/custom-fields/index.js";
 import { registerTypeaheadTools } from "./services/typeahead/index.js";
+import { registerAttachmentsTools } from "./services/attachments/index.js";
+import { registerUsersTools } from "./services/users/index.js";
+import { registerEventsTools } from "./services/events/index.js";
 
 export function createServer(ctx: ServiceContext): McpServer {
   const server = new McpServer({
@@ -21,6 +24,9 @@ export function createServer(ctx: ServiceContext): McpServer {
   registerStoriesTools(server, ctx);
   registerCustomFieldsTools(server, ctx);
   registerTypeaheadTools(server, ctx);
+  registerAttachmentsTools(server, ctx);
+  registerUsersTools(server, ctx);
+  registerEventsTools(server, ctx);
 
   return server;
 }

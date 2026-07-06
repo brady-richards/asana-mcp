@@ -3,6 +3,8 @@ import Asana from "asana";
 import { z } from "zod";
 import { ServiceContext } from "../../types.js";
 import { textResult } from "../../utils/formatting.js";
+import { withErrorHandling } from "../../utils/errors.js";
+import { parseOptFields } from "../../utils/optFields.js";
 
 export function registerCustomFieldsTools(
   server: McpServer,
@@ -18,12 +20,15 @@ export function registerCustomFieldsTools(
       workspace: z.string().describe("Workspace GID"),
       opt_fields: z.string().optional().describe("Comma-separated fields to include"),
     },
-    async ({ workspace, opt_fields }) => {
+    withErrorHandling(async ({ workspace, opt_fields }) => {
       const res = await customFields().getCustomFieldsForWorkspace(workspace, {
-        opt_fields: (opt_fields || "gid,name,resource_subtype,description,enum_options.gid,enum_options.name,enum_options.color,enum_options.enabled").split(","),
+        opt_fields: parseOptFields(
+          opt_fields,
+          "gid,name,resource_subtype,description,enum_options.gid,enum_options.name,enum_options.color,enum_options.enabled"
+        ),
       });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -33,12 +38,15 @@ export function registerCustomFieldsTools(
       custom_field_gid: z.string().describe("Custom field GID"),
       opt_fields: z.string().optional().describe("Comma-separated fields to include"),
     },
-    async ({ custom_field_gid, opt_fields }) => {
+    withErrorHandling(async ({ custom_field_gid, opt_fields }) => {
       const res = await customFields().getCustomField(custom_field_gid, {
-        opt_fields: (opt_fields || "gid,name,resource_subtype,description,enum_options.gid,enum_options.name,enum_options.color,enum_options.enabled,precision,format,is_global_to_workspace").split(","),
+        opt_fields: parseOptFields(
+          opt_fields,
+          "gid,name,resource_subtype,description,enum_options.gid,enum_options.name,enum_options.color,enum_options.enabled,precision,format,is_global_to_workspace"
+        ),
       });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -73,10 +81,10 @@ export function registerCustomFieldsTools(
       custom_label: z.string().optional().describe("Custom label suffix for number fields"),
       is_global_to_workspace: z.boolean().optional().describe("Whether the field is reusable across projects in the workspace"),
     },
-    async (data) => {
+    withErrorHandling(async (data) => {
       const res = await customFields().createCustomField({ data });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -91,10 +99,10 @@ export function registerCustomFieldsTools(
       currency_code: z.string().optional(),
       custom_label: z.string().optional(),
     },
-    async ({ custom_field_gid, ...updates }) => {
+    withErrorHandling(async ({ custom_field_gid, ...updates }) => {
       const res = await customFields().updateCustomField(custom_field_gid, { body: { data: updates } });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -103,10 +111,10 @@ export function registerCustomFieldsTools(
     {
       custom_field_gid: z.string().describe("Custom field GID"),
     },
-    async ({ custom_field_gid }) => {
+    withErrorHandling(async ({ custom_field_gid }) => {
       await customFields().deleteCustomField(custom_field_gid);
       return textResult({ ok: true, deleted: custom_field_gid });
-    }
+    })
   );
 
   server.tool(
@@ -125,10 +133,10 @@ export function registerCustomFieldsTools(
       insert_before: z.string().optional().describe("Existing enum option GID to insert before"),
       insert_after: z.string().optional().describe("Existing enum option GID to insert after"),
     },
-    async ({ custom_field_gid, ...data }) => {
+    withErrorHandling(async ({ custom_field_gid, ...data }) => {
       const res = await customFields().createEnumOptionForCustomField(custom_field_gid, { body: { data } });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -145,10 +153,10 @@ export function registerCustomFieldsTools(
         ),
       enabled: z.boolean().optional(),
     },
-    async ({ enum_option_gid, ...updates }) => {
+    withErrorHandling(async ({ enum_option_gid, ...updates }) => {
       const res = await customFields().updateEnumOption(enum_option_gid, { body: { data: updates } });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -161,9 +169,9 @@ export function registerCustomFieldsTools(
       insert_before: z.string().optional().describe("Existing custom-field-setting GID to insert before (for ordering)"),
       insert_after: z.string().optional().describe("Existing custom-field-setting GID to insert after (for ordering)"),
     },
-    async ({ project_id, ...data }) => {
+    withErrorHandling(async ({ project_id, ...data }) => {
       const res = await projects().addCustomFieldSettingForProject({ data }, project_id);
       return textResult(res.data);
-    }
+    })
   );
 }

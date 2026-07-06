@@ -3,6 +3,10 @@ import Asana from "asana";
 import { z } from "zod";
 import { ServiceContext } from "../../types.js";
 import { textResult } from "../../utils/formatting.js";
+import { withErrorHandling } from "../../utils/errors.js";
+import { parseOptFields } from "../../utils/optFields.js";
+import { limitParam, offsetParam, paginationOpts, pagedResult } from "../../utils/pagination.js";
+import { resolveStatusType } from "./statusType.js";
 
 export function registerProjectsTools(
   server: McpServer,
@@ -10,38 +14,59 @@ export function registerProjectsTools(
 ): void {
   const workspaces = () => new Asana.WorkspacesApi(ctx.apiClient);
   const projects = () => new Asana.ProjectsApi(ctx.apiClient);
-  const statuses = () => new Asana.ProjectStatusesApi(ctx.apiClient);
+  // ProjectStatusesApi (/project_statuses) is deprecated in favor of the
+  // unified StatusUpdatesApi (/status_updates?parent=), which also covers
+  // portfolio and goal status updates — see node_modules/asana/src/api/StatusUpdatesApi.d.ts.
+  // Tool names/params below are unchanged (only status_type is new) so existing
+  // callers aren't affected by the backend swap.
+  const statusUpdates = () => new Asana.StatusUpdatesApi(ctx.apiClient);
 
   server.tool(
     "asana_list_workspaces",
     "List all workspaces the authenticated user belongs to",
     {},
-    async () => {
+    withErrorHandling(async () => {
       const res = await workspaces().getWorkspaces({});
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
     "asana_search_projects",
-    "Search for projects by name pattern",
+    "Search for projects by name pattern (regex) within one page of the workspace's projects. Paginate with limit/offset to scan further pages — matches are found only within the fetched page, not the whole workspace.",
     {
       workspace: z.string().describe("Workspace GID"),
       name_pattern: z.string().describe("Regex pattern to match project names"),
       archived: z.boolean().optional().default(false).describe("Only return archived projects"),
+      limit: limitParam,
+      offset: offsetParam,
       opt_fields: z.string().optional().describe("Comma-separated fields to include"),
     },
-    async ({ workspace, name_pattern, archived, opt_fields }) => {
+    withErrorHandling(async ({ workspace, name_pattern, archived, limit, offset, opt_fields }) => {
+      let regex: RegExp;
+      try {
+        regex = new RegExp(name_pattern, "i");
+      } catch (e) {
+        throw new Error(`Invalid regular expression in name_pattern: ${(e as Error).message}`);
+      }
+
+      // `name` must always be fetched — it's what the regex matches against —
+      // even if the caller's opt_fields omits it.
+      const requestedFields = parseOptFields(opt_fields, "name,archived,color,current_status");
+      const fetchFields = requestedFields.includes("name")
+        ? requestedFields
+        : ["name", ...requestedFields];
+
       const res = await projects().getProjectsForWorkspace(workspace, {
         archived,
-        opt_fields: (opt_fields || "name,archived,color,current_status").split(","),
+        ...paginationOpts(limit, offset),
+        opt_fields: fetchFields,
       });
-      const regex = new RegExp(name_pattern, "i");
       const matches = (res.data || []).filter((p: Record<string, unknown>) =>
         regex.test(p.name as string)
       );
-      return textResult(matches);
-    }
+      return textResult(pagedResult({ data: matches, _response: res._response }));
+    })
   );
 
   server.tool(
@@ -51,12 +76,15 @@ export function registerProjectsTools(
       project_id: z.string().describe("Project GID"),
       opt_fields: z.string().optional().describe("Comma-separated fields to include"),
     },
-    async ({ project_id, opt_fields }) => {
+    withErrorHandling(async ({ project_id, opt_fields }) => {
       const res = await projects().getProject(project_id, {
-        opt_fields: (opt_fields || "name,notes,archived,color,current_status,owner.name,team.name,permalink_url").split(","),
+        opt_fields: parseOptFields(
+          opt_fields,
+          "name,notes,archived,color,current_status,owner.name,team.name,permalink_url"
+        ),
       });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -84,10 +112,10 @@ export function registerProjectsTools(
         .optional()
         .describe("Default view mode when opening the project. Defaults to list if omitted."),
     },
-    async ({ workspace, ...projectData }) => {
+    withErrorHandling(async ({ workspace, ...projectData }) => {
       const res = await projects().createProjectForWorkspace({ data: projectData }, workspace);
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -113,10 +141,10 @@ export function registerProjectsTools(
         .optional()
         .describe("Default view mode when opening the project."),
     },
-    async ({ project_id, ...updates }) => {
+    withErrorHandling(async ({ project_id, ...updates }) => {
       const res = await projects().updateProject({ data: updates }, project_id);
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -125,12 +153,12 @@ export function registerProjectsTools(
     {
       project_id: z.string().describe("Project GID"),
     },
-    async ({ project_id }) => {
+    withErrorHandling(async ({ project_id }) => {
       const res = await projects().getProject(project_id, {
         opt_fields: ["name", "num_tasks", "num_incomplete_tasks"],
       });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -139,10 +167,10 @@ export function registerProjectsTools(
     {
       project_id: z.string().describe("Project GID"),
     },
-    async ({ project_id }) => {
-      const res = await statuses().getProjectStatusesForProject(project_id, {});
+    withErrorHandling(async ({ project_id }) => {
+      const res = await statusUpdates().getStatusesForObject(project_id, {});
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -151,25 +179,43 @@ export function registerProjectsTools(
     {
       status_id: z.string().describe("Project status GID"),
     },
-    async ({ status_id }) => {
-      const res = await statuses().getProjectStatus(status_id, {});
+    withErrorHandling(async ({ status_id }) => {
+      const res = await statusUpdates().getStatus(status_id, {});
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
     "asana_create_project_status",
-    "Create a status update for a project",
+    "Create a status update for a project. The underlying StatusUpdate resource is keyed on status_type, not color — when status_type is omitted it is derived from color (green→on_track, yellow→at_risk, red→off_track), and color itself is never sent to the API. The response is a status_update record (no color field).",
     {
       project_id: z.string().describe("Project GID"),
       text: z.string().describe("Status text"),
-      color: z.enum(["green", "yellow", "red"]).describe("Status color"),
+      color: z
+        .enum(["green", "yellow", "red"])
+        .describe(
+          "Status color — used only to derive status_type when that isn't given (green→on_track, yellow→at_risk, red→off_track); not sent to the API."
+        ),
       title: z.string().optional().describe("Status title"),
+      status_type: z
+        .enum(["on_track", "at_risk", "off_track", "on_hold", "complete", "dropped"])
+        .optional()
+        .describe(
+          "Structured status signal, surfaced in status rollups. Overrides the color-derived value when given."
+        ),
     },
-    async ({ project_id, ...statusData }) => {
-      const res = await statuses().createProjectStatusForProject({ data: statusData }, project_id);
+    withErrorHandling(async ({ project_id, color, status_type, ...statusData }) => {
+      // POST /status_updates requires status_type and its request schema has
+      // no color property — see statusType.ts.
+      const res = await statusUpdates().createStatusForObject({
+        data: {
+          parent: project_id,
+          status_type: resolveStatusType(color, status_type),
+          ...statusData,
+        },
+      });
       return textResult(res.data);
-    }
+    })
   );
 
   server.tool(
@@ -178,9 +224,9 @@ export function registerProjectsTools(
     {
       status_id: z.string().describe("Project status GID"),
     },
-    async ({ status_id }) => {
-      await statuses().deleteProjectStatus(status_id);
+    withErrorHandling(async ({ status_id }) => {
+      await statusUpdates().deleteStatus(status_id);
       return textResult({ ok: true, deleted: status_id });
-    }
+    })
   );
 }
