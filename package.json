@@ -17,7 +17,7 @@
   "author": "David Chang",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "asana": "^3.0.12",
     "commander": "^14.0.3",
     "zod": "^4.3.6"
