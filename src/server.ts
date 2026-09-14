@@ -10,6 +10,7 @@ import { registerTypeaheadTools } from "./services/typeahead/index.js";
 import { registerAttachmentsTools } from "./services/attachments/index.js";
 import { registerUsersTools } from "./services/users/index.js";
 import { registerEventsTools } from "./services/events/index.js";
+import { registerProjectTemplatesTools } from "./services/project-templates/index.js";
 
 export function createServer(ctx: ServiceContext): McpServer {
   const server = new McpServer({
@@ -27,6 +28,7 @@ export function createServer(ctx: ServiceContext): McpServer {
   registerAttachmentsTools(server, ctx);
   registerUsersTools(server, ctx);
   registerEventsTools(server, ctx);
+  registerProjectTemplatesTools(server, ctx);
 
   return server;
 }
