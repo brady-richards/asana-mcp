@@ -7,8 +7,8 @@ A stdio MCP server on the official `asana` Node SDK. One process per workspace: 
 ## Tool families
 
 - **Tasks** — create/update/delete, subtasks, dependencies/dependents, followers, project & section membership, tags, parenting, `asana_get_my_tasks`, `asana_get_multiple_tasks_by_gid` (Batch-API-backed, up to 25).
-- **Task search** — `asana_search_tasks` with advanced filters: text, assignee (`assignee_any`/`assignee_not`), due/start/modified date bounds, projects/sections/tags, blocked/blocking/subtask/attachment state, `resource_subtype`, and a `custom_fields` passthrough (`{"<gid>.<query>": value}`).
-- **Bulk update** — `asana_batch_update_tasks`: up to 50 per-task updates (complete, reassign, dates, section moves) in chunked Batch API calls with per-action results.
+- **Task search** — `asana_search_tasks` with advanced filters: text, assignee (`assignee_any`/`assignee_not`), due/start/modified date bounds, creation-time bounds (`created_at_after`/`created_at_before`, full ISO-8601 timestamps), projects/sections/tags, blocked/blocking/subtask/attachment state, `resource_subtype`, and a `custom_fields` passthrough (`{"<gid>.<query>": value}`).
+- **Bulk update** — `asana_batch_update_tasks`: up to 50 per-task updates (complete, reassign, dates, section moves) in chunked Batch API calls, returning compact per-action success/error results (pass `opt_fields` for task bodies).
 - **Duplicate** — `asana_duplicate_task`: async-job-backed duplication (the recurrence primitive); polls up to ~30s, then reports the job gid as still running instead of failing.
 - **Projects** — search/get/create/update, task counts, and status updates (`asana_create_project_status` et al., backed by the StatusUpdates API with `status_type` support).
 - **Sections** — list/create/rename/delete, plus `asana_insert_section` to reorder a section before/after another.

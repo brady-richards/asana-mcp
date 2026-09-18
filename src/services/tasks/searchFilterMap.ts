@@ -10,6 +10,13 @@
 // opts['start_on.before'], opts['start_on.after']). `is_blocked`, `is_blocking`,
 // `is_subtask`, `has_attachment`, and `resource_subtype` are already the literal
 // Asana parameter names, so they need no rename — they pass through unchanged.
+//
+// `created_at.before` / `created_at.after` are absent from that generated opts list, but the
+// endpoint does accept them (verified against the live API 2026-09-18, both as a pair and
+// with `.after` as the only filter). The SDK spreads unrecognized opts through verbatim as
+// query params — see node_modules/asana/src/api/TasksApi.js — so this rename is the whole
+// passthrough. Unlike every other date filter here, the two take a full ISO-8601 timestamp,
+// not YYYY-MM-DD.
 const SEARCH_FILTER_RENAME_MAP: Record<string, string> = {
   assignee_any: "assignee.any",
   assignee_not: "assignee.not",
@@ -21,6 +28,8 @@ const SEARCH_FILTER_RENAME_MAP: Record<string, string> = {
   tags_any: "tags.any",
   start_on_before: "start_on.before",
   start_on_after: "start_on.after",
+  created_at_before: "created_at.before",
+  created_at_after: "created_at.after",
 };
 
 /**

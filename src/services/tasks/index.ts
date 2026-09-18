@@ -19,6 +19,7 @@ import {
 import {
   chunk,
   MAX_BATCH_ACTIONS,
+  COMPACT_RESPONSE_FIELDS,
   isBatchActionSuccess,
   batchActionErrorMessage,
   buildGetTaskAction,
@@ -62,6 +63,16 @@ export function registerTasksTools(
       completed: z.boolean().optional().describe("Filter by completion status"),
       completed_on: z.string().optional().describe("Completed on date (YYYY-MM-DD)"),
       modified_on_after: z.string().optional().describe("Modified after (YYYY-MM-DD)"),
+      created_at_after: datetimeField()
+        .optional()
+        .describe(
+          "Created at or after this instant — full ISO 8601 timestamp, not a date (e.g. 2026-01-15T09:00:00Z)"
+        ),
+      created_at_before: datetimeField()
+        .optional()
+        .describe(
+          "Created before this instant — full ISO 8601 timestamp, not a date (e.g. 2026-01-15T09:00:00Z)"
+        ),
       projects_any: z.string().optional().describe("Comma-separated project GIDs"),
       sections_any: z.string().optional().describe("Comma-separated section GIDs"),
       tags_any: z.string().optional().describe("Comma-separated tag GIDs"),
@@ -88,7 +99,7 @@ export function registerTasksTools(
         .max(100)
         .optional()
         .describe(
-          "Max results (1-100). Asana caps search results at 100 server-side and does not support traditional offset pagination for this endpoint — re-run with a narrower filter (e.g. modified_on_after) to see more."
+          "Max results (1-100). Asana caps search results at 100 server-side and does not support traditional offset pagination for this endpoint — re-run with a narrower filter (e.g. created_at_after or modified_on_after) to see more."
         ),
       opt_fields: z.string().optional().describe("Comma-separated fields to include"),
     },
@@ -173,7 +184,7 @@ export function registerTasksTools(
 
   server.tool(
     "asana_batch_update_tasks",
-    "Bulk-update up to 50 tasks in one round trip (complete, reassign, change dates, move between sections) via Asana's Batch API. Each update becomes one or two batch actions (a field PUT and/or a section-move POST), chunked into requests of up to 10 actions. Returns per-action success/error results in the same order as `updates`. If one chunk's request fails outright (e.g. rate limit), its tasks are reported with chunk_request_failed (status unknown — verify before retrying) while other chunks' results are preserved.",
+    "Bulk-update up to 50 tasks in one round trip (complete, reassign, change dates, move between sections) via Asana's Batch API. Each update becomes one or two batch actions (a field PUT and/or a section-move POST), chunked into requests of up to 10 actions. Returns one compact {task_id, actions:[{kind, success, error?}]} entry per update, in the same order as `updates`, with no task bodies — so a 50-task batch is readable inline and needs no follow-up read to confirm the writes. Pass opt_fields to get task bodies back on successful actions. If one chunk's request fails outright (e.g. rate limit), its tasks are reported with chunk_request_failed (status unknown — verify before retrying) while other chunks' results are preserved.",
     {
       updates: z
         .array(
@@ -211,8 +222,23 @@ export function registerTasksTools(
         .describe(
           "Per-task updates; each becomes 0-2 batch actions (a field PUT and/or a section-move POST)."
         ),
+      opt_fields: z
+        .string()
+        .optional()
+        .describe(
+          "Comma-separated fields to return on each successful action's task body. Omit for compact results (success/error only) — the default, because full task bodies overflow the tool-result limit at batch sizes well under 50."
+        ),
     },
-    withErrorHandling(async ({ updates }) => {
+    withErrorHandling(async ({ updates, opt_fields }) => {
+      // Compact unless the caller asked for specific fields. In compact mode we
+      // still send COMPACT_RESPONSE_FIELDS as the actions' `options.fields`, so
+      // Asana stops serializing full task objects on the wire too, not just in
+      // the report we assemble from them.
+      const includeData = Boolean(opt_fields?.trim());
+      const responseFields = includeData
+        ? parseOptFields(opt_fields, "gid")
+        : COMPACT_RESPONSE_FIELDS;
+
       // All validation happens here, before any batch request is submitted.
       // Dates are normalized ("null" → null) BEFORE the exclusivity check so
       // clearing one sibling while setting the other (date↔datetime switch)
@@ -229,21 +255,25 @@ export function registerTasksTools(
           ...rest,
           ...dates,
         };
-        return { task_id, plans: buildTaskUpdateActions(normalized) };
+        return { task_id, plans: buildTaskUpdateActions(normalized, responseFields) };
       });
 
       // Chunk failures are isolated per chunk (not thrown): each affected
       // task is reported with chunk_request_failed instead, so one rate-limited
       // or 5xx'd /batch call can't discard the results of mutations that other
       // chunks already applied — see executeBatchUpdate.
-      const results = await executeBatchUpdate(groups, async (actions) => {
-        try {
-          const res = await batchApi().createBatchRequest({ data: { actions } });
-          return (res.data ?? []) as BatchActionResult[];
-        } catch (e) {
-          throw new Error(extractAsanaError(e).message);
-        }
-      });
+      const results = await executeBatchUpdate(
+        groups,
+        async (actions) => {
+          try {
+            const res = await batchApi().createBatchRequest({ data: { actions } });
+            return (res.data ?? []) as BatchActionResult[];
+          } catch (e) {
+            throw new Error(extractAsanaError(e).message);
+          }
+        },
+        includeData
+      );
 
       return textResult({ results });
     })

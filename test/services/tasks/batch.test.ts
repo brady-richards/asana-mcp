@@ -6,6 +6,7 @@ import {
   batchActionErrorMessage,
   buildGetTaskAction,
   buildTaskUpdateActions,
+  COMPACT_RESPONSE_FIELDS,
   assembleBatchUpdateResults,
   executeBatchUpdate,
   BatchAction,
@@ -91,6 +92,7 @@ describe("buildTaskUpdateActions", () => {
           relative_path: "/tasks/1",
           method: "put",
           data: { completed: true, assignee: "me" },
+          options: { fields: ["gid"] },
         },
       },
     ]);
@@ -106,6 +108,7 @@ describe("buildTaskUpdateActions", () => {
           relative_path: "/sections/999/addTask",
           method: "post",
           data: { task: "1", insert_before: undefined, insert_after: undefined },
+          options: { fields: ["gid"] },
         },
       },
     ]);
@@ -122,7 +125,12 @@ describe("buildTaskUpdateActions", () => {
       {
         task_id: "1",
         kind: "update",
-        action: { relative_path: "/tasks/1", method: "put", data: { completed: true } },
+        action: {
+          relative_path: "/tasks/1",
+          method: "put",
+          data: { completed: true },
+          options: { fields: ["gid"] },
+        },
       },
       {
         task_id: "1",
@@ -131,6 +139,7 @@ describe("buildTaskUpdateActions", () => {
           relative_path: "/sections/999/addTask",
           method: "post",
           data: { task: "1", insert_before: "42", insert_after: undefined },
+          options: { fields: ["gid"] },
         },
       },
     ]);
@@ -144,10 +153,29 @@ describe("buildTaskUpdateActions", () => {
   it("returns no actions when there are no fields and no section_id", () => {
     expect(buildTaskUpdateActions({ task_id: "1" })).toEqual([]);
   });
+
+  it("requests only COMPACT_RESPONSE_FIELDS by default, so Asana omits the full task body", () => {
+    const plans = buildTaskUpdateActions({ task_id: "1", completed: true, section_id: "9" });
+    expect(plans.map((p) => p.action.options)).toEqual([
+      { fields: [...COMPACT_RESPONSE_FIELDS] },
+      { fields: [...COMPACT_RESPONSE_FIELDS] },
+    ]);
+  });
+
+  it("puts caller-requested response fields on every action it builds", () => {
+    const plans = buildTaskUpdateActions({ task_id: "1", completed: true, section_id: "9" }, [
+      "name",
+      "completed",
+    ]);
+    expect(plans.map((p) => p.action.options)).toEqual([
+      { fields: ["name", "completed"] },
+      { fields: ["name", "completed"] },
+    ]);
+  });
 });
 
 describe("assembleBatchUpdateResults", () => {
-  it("maps a successful result back to its task, surfacing the response body's data", () => {
+  it("reports a successful action compactly, without the response body's task data", () => {
     const groups = [
       {
         task_id: "1",
@@ -162,6 +190,25 @@ describe("assembleBatchUpdateResults", () => {
     ];
     const results = [{ status_code: 200, body: { data: { gid: "1", completed: true } } }];
     expect(assembleBatchUpdateResults(groups, results)).toEqual([
+      { task_id: "1", actions: [{ kind: "update", success: true }] },
+    ]);
+  });
+
+  it("surfaces the response body's task data when includeData is set", () => {
+    const groups = [
+      {
+        task_id: "1",
+        plans: [
+          {
+            task_id: "1",
+            kind: "update" as const,
+            action: { relative_path: "/tasks/1", method: "put" as const, data: {} },
+          },
+        ],
+      },
+    ];
+    const results = [{ status_code: 200, body: { data: { gid: "1", completed: true } } }];
+    expect(assembleBatchUpdateResults(groups, results, true)).toEqual([
       {
         task_id: "1",
         actions: [{ kind: "update", success: true, data: { gid: "1", completed: true } }],
@@ -221,8 +268,8 @@ describe("assembleBatchUpdateResults", () => {
       {
         task_id: "2",
         actions: [
-          { kind: "update", success: true, data: { gid: "2" } },
-          { kind: "move_section", success: true, data: undefined },
+          { kind: "update", success: true },
+          { kind: "move_section", success: true },
         ],
       },
     ]);
@@ -323,13 +370,18 @@ describe("executeBatchUpdate", () => {
 
     expect(report).toHaveLength(12);
     for (const entry of report.slice(0, 10)) {
-      expect(entry.actions).toEqual([{ kind: "update", success: true, data: { gid: "ok" } }]);
+      expect(entry.actions).toEqual([{ kind: "update", success: true }]);
     }
     for (const entry of report.slice(10)) {
       expect(entry.actions).toEqual([
         { kind: "update", success: false, chunk_request_failed: "Rate limit exceeded" },
       ]);
     }
+  });
+
+  it("threads includeData through to the assembled reports", async () => {
+    const report = await executeBatchUpdate(makeGroups(1), okResults, true);
+    expect(report[0].actions).toEqual([{ kind: "update", success: true, data: { gid: "ok" } }]);
   });
 
   it("treats a chunk whose result count mismatches its action count as a failed chunk (statuses unknown), not misattributed", async () => {
