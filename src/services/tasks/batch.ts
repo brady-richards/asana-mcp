@@ -17,6 +17,17 @@
 /** Asana's documented cap on actions per `/batch` request. */
 export const MAX_BATCH_ACTIONS = 10;
 
+/**
+ * The `options.fields` a bulk update requests back when the caller wants no task
+ * bodies. Without it Asana returns the whole task per action — notes, every
+ * custom field with its full `enum_options` array, followers, memberships — which
+ * overflows the MCP tool-result limit well before the tool's own 50-task cap, so
+ * the caller cannot see inline whether the writes landed. `gid` is always returned,
+ * making this the smallest legal ask; it cut a one-action /batch PUT response from
+ * 6917 to 136 bytes when measured against the live API on 2026-09-18.
+ */
+export const COMPACT_RESPONSE_FIELDS = ["gid"] as const;
+
 /** Splits an array into consecutive chunks of at most `size` items each. */
 export function chunk<T>(items: readonly T[], size: number): T[][] {
   if (size <= 0) throw new Error("chunk size must be positive");
@@ -92,18 +103,22 @@ export interface TaskBatchUpdateInput {
  * and the POST touches project/section membership — disjoint aspects of the
  * task with no read-modify-write overlap between the two actions.
  */
-export function buildTaskUpdateActions(update: TaskBatchUpdateInput): TaskUpdatePlan[] {
+export function buildTaskUpdateActions(
+  update: TaskBatchUpdateInput,
+  responseFields: readonly string[] = COMPACT_RESPONSE_FIELDS
+): TaskUpdatePlan[] {
   const { task_id, section_id, insert_before, insert_after, ...rest } = update;
   const fields = Object.fromEntries(
     Object.entries(rest).filter(([, v]) => v !== undefined)
   );
+  const options = { fields: [...responseFields] };
   const plans: TaskUpdatePlan[] = [];
 
   if (Object.keys(fields).length > 0) {
     plans.push({
       task_id,
       kind: "update",
-      action: { relative_path: `/tasks/${task_id}`, method: "put", data: fields },
+      action: { relative_path: `/tasks/${task_id}`, method: "put", data: fields, options },
     });
   }
 
@@ -115,6 +130,7 @@ export function buildTaskUpdateActions(update: TaskBatchUpdateInput): TaskUpdate
         relative_path: `/sections/${section_id}/addTask`,
         method: "post",
         data: { task: task_id, insert_before, insert_after },
+        options,
       },
     });
   }
@@ -170,10 +186,17 @@ function isChunkRequestFailure(outcome: SettledActionOutcome): outcome is ChunkR
  * group with zero actions. Throws loudly if the outcome count doesn't match
  * the submitted action count, since positional zipping would otherwise
  * silently attribute results to the wrong task GIDs.
+ *
+ * `includeData` controls whether a successful action carries the returned task
+ * body. It defaults to false: the batch contract is per-action success/error,
+ * and echoing whole task objects is what made these results unreadable inline
+ * (see `COMPACT_RESPONSE_FIELDS`). Callers who genuinely want bodies back pass
+ * `opt_fields` through `asana_batch_update_tasks`, which sets this to true.
  */
 export function assembleBatchUpdateResults(
   groups: readonly TaskUpdatePlanGroup[],
-  results: readonly SettledActionOutcome[]
+  results: readonly SettledActionOutcome[],
+  includeData = false
 ): TaskBatchUpdateReport[] {
   const submitted = groups.reduce((n, g) => n + g.plans.length, 0);
   if (results.length !== submitted) {
@@ -193,13 +216,15 @@ export function assembleBatchUpdateResults(
           chunk_request_failed: outcome.chunk_request_failed,
         };
       }
-      const ok = isBatchActionSuccess(outcome);
+      if (!isBatchActionSuccess(outcome)) {
+        return { kind: plan.kind, success: false, error: batchActionErrorMessage(outcome.body) };
+      }
       return {
         kind: plan.kind,
-        success: ok,
-        ...(ok
+        success: true,
+        ...(includeData
           ? { data: (outcome.body as { data?: unknown } | undefined)?.data }
-          : { error: batchActionErrorMessage(outcome.body) }),
+          : {}),
       };
     }),
   }));
@@ -220,7 +245,8 @@ export function assembleBatchUpdateResults(
  */
 export async function executeBatchUpdate(
   groups: readonly TaskUpdatePlanGroup[],
-  submitBatch: (actions: BatchAction[]) => Promise<BatchActionResult[]>
+  submitBatch: (actions: BatchAction[]) => Promise<BatchActionResult[]>,
+  includeData = false
 ): Promise<TaskBatchUpdateReport[]> {
   const flatPlans = groups.flatMap((g) => g.plans);
   const planChunks = chunk(flatPlans, MAX_BATCH_ACTIONS);
@@ -240,5 +266,5 @@ export async function executeBatchUpdate(
       }
     })
   );
-  return assembleBatchUpdateResults(groups, outcomeChunks.flat());
+  return assembleBatchUpdateResults(groups, outcomeChunks.flat(), includeData);
 }

@@ -103,6 +103,24 @@ describe("mapSearchFilterParams", () => {
     });
   });
 
+  it("renames created_at_before and created_at_after to dot notation", () => {
+    expect(
+      mapSearchFilterParams({
+        created_at_after: "2026-09-15T10:05:00Z",
+        created_at_before: "2026-09-16T00:00:00Z",
+      })
+    ).toEqual({
+      "created_at.after": "2026-09-15T10:05:00Z",
+      "created_at.before": "2026-09-16T00:00:00Z",
+    });
+  });
+
+  it("maps created_at_after when it is the only filter besides the workspace", () => {
+    expect(mapSearchFilterParams({ created_at_after: "2026-09-15T10:05:00Z" })).toEqual({
+      "created_at.after": "2026-09-15T10:05:00Z",
+    });
+  });
+
   it("renames start_on_before and start_on_after to dot notation", () => {
     expect(
       mapSearchFilterParams({ start_on_before: "2026-01-01", start_on_after: "2025-01-01" })
