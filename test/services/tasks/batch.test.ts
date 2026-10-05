@@ -136,6 +136,12 @@ describe("buildTaskUpdateActions", () => {
     ]);
   });
 
+  it("requests the given fields on the PUT action only", () => {
+    const plans = buildTaskUpdateActions({ task_id: "1", completed: true, section_id: "9" }, ["gid", "name"]);
+    expect(plans[0].action.options).toEqual({ fields: ["gid", "name"] });
+    expect(plans[1].action.options).toBeUndefined();
+  });
+
   it("drops undefined-valued fields from the PUT action's data", () => {
     const plans = buildTaskUpdateActions({ task_id: "1", completed: true, name: undefined });
     expect(plans[0].action.data).toEqual({ completed: true });
@@ -161,11 +167,30 @@ describe("assembleBatchUpdateResults", () => {
       },
     ];
     const results = [{ status_code: 200, body: { data: { gid: "1", completed: true } } }];
-    expect(assembleBatchUpdateResults(groups, results)).toEqual([
+    expect(assembleBatchUpdateResults(groups, results, true)).toEqual([
       {
         task_id: "1",
         actions: [{ kind: "update", success: true, data: { gid: "1", completed: true } }],
       },
+    ]);
+  });
+
+  it("omits the response body's data by default so results stay compact", () => {
+    const groups = [
+      {
+        task_id: "1",
+        plans: [
+          {
+            task_id: "1",
+            kind: "update" as const,
+            action: { relative_path: "/tasks/1", method: "put" as const, data: {} },
+          },
+        ],
+      },
+    ];
+    const results = [{ status_code: 200, body: { data: { gid: "1", notes: "big" } } }];
+    expect(assembleBatchUpdateResults(groups, results)).toEqual([
+      { task_id: "1", actions: [{ kind: "update", success: true }] },
     ]);
   });
 
@@ -221,8 +246,8 @@ describe("assembleBatchUpdateResults", () => {
       {
         task_id: "2",
         actions: [
-          { kind: "update", success: true, data: { gid: "2" } },
-          { kind: "move_section", success: true, data: undefined },
+          { kind: "update", success: true },
+          { kind: "move_section", success: true },
         ],
       },
     ]);
@@ -323,7 +348,7 @@ describe("executeBatchUpdate", () => {
 
     expect(report).toHaveLength(12);
     for (const entry of report.slice(0, 10)) {
-      expect(entry.actions).toEqual([{ kind: "update", success: true, data: { gid: "ok" } }]);
+      expect(entry.actions).toEqual([{ kind: "update", success: true }]);
     }
     for (const entry of report.slice(10)) {
       expect(entry.actions).toEqual([

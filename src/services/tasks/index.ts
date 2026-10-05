@@ -173,7 +173,7 @@ export function registerTasksTools(
 
   server.tool(
     "asana_batch_update_tasks",
-    "Bulk-update up to 50 tasks in one round trip (complete, reassign, change dates, move between sections) via Asana's Batch API. Each update becomes one or two batch actions (a field PUT and/or a section-move POST), chunked into requests of up to 10 actions. Returns per-action success/error results in the same order as `updates`. If one chunk's request fails outright (e.g. rate limit), its tasks are reported with chunk_request_failed (status unknown — verify before retrying) while other chunks' results are preserved.",
+    "Bulk-update up to 50 tasks in one round trip (complete, reassign, change dates, move between sections) via Asana's Batch API. Each update becomes one or two batch actions (a field PUT and/or a section-move POST), chunked into requests of up to 10 actions. Returns per-action success/error results in the same order as `updates`; task bodies are omitted unless `opt_fields` is set. If one chunk's request fails outright (e.g. rate limit), its tasks are reported with chunk_request_failed (status unknown — verify before retrying) while other chunks' results are preserved.",
     {
       updates: z
         .array(
@@ -211,8 +211,15 @@ export function registerTasksTools(
         .describe(
           "Per-task updates; each becomes 0-2 batch actions (a field PUT and/or a section-move POST)."
         ),
+      opt_fields: z
+        .string()
+        .optional()
+        .describe(
+          "Comma-separated task fields to return for each successful update, as `data` on its result. Omit for compact results (task_id, kind, success, error only)."
+        ),
     },
-    withErrorHandling(async ({ updates }) => {
+    withErrorHandling(async ({ updates, opt_fields }) => {
+      const bodyFields = opt_fields?.trim() ? parseOptFields(opt_fields, "") : undefined;
       // All validation happens here, before any batch request is submitted.
       // Dates are normalized ("null" → null) BEFORE the exclusivity check so
       // clearing one sibling while setting the other (date↔datetime switch)
@@ -229,7 +236,7 @@ export function registerTasksTools(
           ...rest,
           ...dates,
         };
-        return { task_id, plans: buildTaskUpdateActions(normalized) };
+        return { task_id, plans: buildTaskUpdateActions(normalized, bodyFields) };
       });
 
       // Chunk failures are isolated per chunk (not thrown): each affected
@@ -243,7 +250,7 @@ export function registerTasksTools(
         } catch (e) {
           throw new Error(extractAsanaError(e).message);
         }
-      });
+      }, bodyFields !== undefined);
 
       return textResult({ results });
     })

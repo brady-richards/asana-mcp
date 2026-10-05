@@ -92,18 +92,26 @@ export interface TaskBatchUpdateInput {
  * and the POST touches project/section membership — disjoint aspects of the
  * task with no read-modify-write overlap between the two actions.
  */
-export function buildTaskUpdateActions(update: TaskBatchUpdateInput): TaskUpdatePlan[] {
+export function buildTaskUpdateActions(
+  update: TaskBatchUpdateInput,
+  fields?: string[]
+): TaskUpdatePlan[] {
   const { task_id, section_id, insert_before, insert_after, ...rest } = update;
-  const fields = Object.fromEntries(
+  const body = Object.fromEntries(
     Object.entries(rest).filter(([, v]) => v !== undefined)
   );
   const plans: TaskUpdatePlan[] = [];
 
-  if (Object.keys(fields).length > 0) {
+  if (Object.keys(body).length > 0) {
     plans.push({
       task_id,
       kind: "update",
-      action: { relative_path: `/tasks/${task_id}`, method: "put", data: fields },
+      action: {
+        relative_path: `/tasks/${task_id}`,
+        method: "put",
+        data: body,
+        ...(fields ? { options: { fields } } : {}),
+      },
     });
   }
 
@@ -131,6 +139,7 @@ export interface TaskUpdatePlanGroup {
 export interface BatchActionReport {
   kind: "update" | "move_section";
   success: boolean;
+  /** Present only when the caller asked for task bodies (`includeData`). */
   data?: unknown;
   /** Per-action Asana error (the /batch call itself succeeded, this action returned non-2xx). */
   error?: string;
@@ -173,7 +182,8 @@ function isChunkRequestFailure(outcome: SettledActionOutcome): outcome is ChunkR
  */
 export function assembleBatchUpdateResults(
   groups: readonly TaskUpdatePlanGroup[],
-  results: readonly SettledActionOutcome[]
+  results: readonly SettledActionOutcome[],
+  includeData = false
 ): TaskBatchUpdateReport[] {
   const submitted = groups.reduce((n, g) => n + g.plans.length, 0);
   if (results.length !== submitted) {
@@ -198,7 +208,9 @@ export function assembleBatchUpdateResults(
         kind: plan.kind,
         success: ok,
         ...(ok
-          ? { data: (outcome.body as { data?: unknown } | undefined)?.data }
+          ? includeData
+            ? { data: (outcome.body as { data?: unknown } | undefined)?.data }
+            : {}
           : { error: batchActionErrorMessage(outcome.body) }),
       };
     }),
@@ -206,6 +218,10 @@ export function assembleBatchUpdateResults(
 }
 
 /**
+ * Task bodies are omitted from the report unless `includeData` is set — a
+ * full task is ~11KB, so echoing them overflows the MCP result limit on any
+ * realistic batch.
+ *
  * Runs a bulk task update end-to-end: flattens the plan groups, chunks them
  * to `MAX_BATCH_ACTIONS` per /batch call, submits chunks in parallel via
  * `submitBatch`, and zips the outcomes back into per-task reports.
@@ -220,7 +236,8 @@ export function assembleBatchUpdateResults(
  */
 export async function executeBatchUpdate(
   groups: readonly TaskUpdatePlanGroup[],
-  submitBatch: (actions: BatchAction[]) => Promise<BatchActionResult[]>
+  submitBatch: (actions: BatchAction[]) => Promise<BatchActionResult[]>,
+  includeData = false
 ): Promise<TaskBatchUpdateReport[]> {
   const flatPlans = groups.flatMap((g) => g.plans);
   const planChunks = chunk(flatPlans, MAX_BATCH_ACTIONS);
@@ -240,5 +257,5 @@ export async function executeBatchUpdate(
       }
     })
   );
-  return assembleBatchUpdateResults(groups, outcomeChunks.flat());
+  return assembleBatchUpdateResults(groups, outcomeChunks.flat(), includeData);
 }
