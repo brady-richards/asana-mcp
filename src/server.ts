@@ -11,6 +11,7 @@ import { registerAttachmentsTools } from "./services/attachments/index.js";
 import { registerUsersTools } from "./services/users/index.js";
 import { registerEventsTools } from "./services/events/index.js";
 import { registerProjectTemplatesTools } from "./services/project-templates/index.js";
+import { registerTaskTemplatesTools } from "./services/task-templates/index.js";
 
 export function createServer(ctx: ServiceContext): McpServer {
   const server = new McpServer({
@@ -29,6 +30,7 @@ export function createServer(ctx: ServiceContext): McpServer {
   registerUsersTools(server, ctx);
   registerEventsTools(server, ctx);
   registerProjectTemplatesTools(server, ctx);
+  registerTaskTemplatesTools(server, ctx);
 
   return server;
 }

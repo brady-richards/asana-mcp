@@ -11,6 +11,7 @@ A stdio MCP server on the official `asana` Node SDK. One process per workspace: 
 - **Bulk update** — `asana_batch_update_tasks`: up to 50 per-task updates (complete, reassign, dates, section moves) in chunked Batch API calls, returning compact per-action success/error results (pass `opt_fields` for task bodies).
 - **Duplicate** — `asana_duplicate_task`: async-job-backed duplication (the recurrence primitive); polls up to ~30s, then reports the job gid as still running instead of failing.
 - **Projects** — search/get/create/update, task counts, and status updates (`asana_create_project_status` et al., backed by the StatusUpdates API with `status_type` support).
+- **Templates** — project templates (`asana_get_project_template`, list, `asana_instantiate_project_template`) and task templates (`asana_list_task_templates`, `asana_get_task_template`, `asana_instantiate_task_template`). Instantiation is async-job-backed with the same ~30s poll as Duplicate.
 - **Sections** — list/create/rename/delete, plus `asana_insert_section` to reorder a section before/after another.
 - **Tags** — workspace tags CRUD and task tagging.
 - **Stories** — read a task's comment/activity stream, post comments (HTML or plain).
